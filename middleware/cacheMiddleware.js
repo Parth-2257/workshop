@@ -11,7 +11,7 @@ const TTL_MS = 60 * 1000;
  */
 function cacheMiddleware(req, res, next) {
     // Only cache GET requests
-    if (req.method !== "GET") {
+    if (req.method !== 'GET') {
         return next();
     }
 
@@ -23,7 +23,7 @@ function cacheMiddleware(req, res, next) {
         const age = now - cachedEntry.createdAt;
         if (age <= TTL_MS) {
             // Cache HIT (fresh data within 1 minute TTL)
-            res.setHeader("X-Cache", "HIT");
+            res.setHeader('X-Cache', 'HIT');
             return res.json(cachedEntry.data);
         } else {
             // Cache expired: remove stale entry
@@ -32,7 +32,7 @@ function cacheMiddleware(req, res, next) {
     }
 
     // Cache MISS (entry not found or expired)
-    res.setHeader("X-Cache", "MISS");
+    res.setHeader('X-Cache', 'MISS');
 
     // Intercept res.json to store the fresh response into the cache
     const originalJson = res.json.bind(res);
@@ -49,7 +49,32 @@ function cacheMiddleware(req, res, next) {
     next();
 }
 
+/**
+ * Invalidates all cached entries.
+ * Called whenever a POST, PUT, PATCH, or DELETE operation modifies data.
+ */
+function invalidateCache() {
+    cache.clear();
+}
+
+/**
+ * Optional helper to inspect current cache state (useful for tests and monitoring)
+ */
+function getCacheState() {
+    const entries = {};
+    for (const [key, val] of cache.entries()) {
+        entries[key] = {
+            ...val,
+            ageMs: Date.now() - val.createdAt,
+            expired: (Date.now() - val.createdAt) > TTL_MS
+        };
+    }
+    return entries;
+}
+
 module.exports = {
     cacheMiddleware,
+    invalidateCache,
+    getCacheState,
     TTL_MS
 };
