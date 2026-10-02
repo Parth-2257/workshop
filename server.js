@@ -1,68 +1,58 @@
-const express=require('express')
-const path=require('path')
-const fs=require("fs")
+const express = require('express');
+const productRoutes = require('./routes/productRoutes');
 
-const app=express()
-const port=3000
+const app = express();
+const port = process.env.PORT || 3000;
 
-const cache={}
+// Body parsing middleware
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-const pathToFile=path.join(__dirname,"db.json")
+// Request logger for visibility
+app.use((req, res, next) => {
+    const start = Date.now();
+    res.on('finish', () => {
+        const duration = Date.now() - start;
+        const cacheHeader = res.getHeader('X-Cache') ? `[${res.getHeader('X-Cache')}]` : '';
+        console.log(`${req.method} ${req.originalUrl} ${res.statusCode} ${cacheHeader} - ${duration}ms`);
+    });
+    next();
+});
 
-async function readFile(){
-    try{
-        let data= await fs.readFileSync(pathToFile,"utf-8")
-        return JSON.parse(data)
-    }catch(err){
-        console.log(err)
-    }
+// Mount modular product routes
+// Request Flow: Route -> Middleware -> Controller -> Service -> Database
+app.use('/products', productRoutes);
+
+// Root route
+app.get('/', (req, res) => {
+    res.json({
+        message: 'Product API with Caching Middleware',
+        endpoints: {
+            'GET /products': 'List all products (Cached, TTL: 1m, X-Cache header)',
+            'GET /products/:id': 'Get product by ID (Cached, TTL: 1m, X-Cache header)',
+            'POST /products': 'Create product (Invalidates cache)',
+            'PUT /products/:id': 'Update product (Invalidates cache)',
+            'PATCH /products/:id': 'Patch product (Invalidates cache)',
+            'DELETE /products/:id': 'Delete product (Invalidates cache)'
+        }
+    });
+});
+
+// 404 Handler
+app.use((req, res) => {
+    res.status(404).json({ error: 'Route not found' });
+});
+
+// Global Error Handler
+app.use((err, req, res, next) => {
+    console.error('Unhandled Server Error:', err);
+    res.status(500).json({ error: 'Internal Server Error' });
+});
+
+if (process.env.NODE_ENV !== 'test') {
+    app.listen(port, () => {
+        console.log(`Server running at http://localhost:${port}`);
+    });
 }
 
-async function readFileWithDelay(){
-    await new Promise((resolve,reject)=>{
-        setTimeout(resolve,1500)
-    })
-    let products=await readFile()
-    return products
-}
-
-app.get("/products",async(req,res)=>{
-    try{
-        let key=req.url;
-        let value=cache[key];
-        if(value){
-            return res.json(value)
-        }
-        let products= await readFileWithDelay()
-        cache[key]=products
-        return res.json(products)
-    }catch(err){
-        console.log(err)
-    }
-})
-
-
-
-app.get("/products/:id",async(req,res)=>{
-    try{
-        let key=req.url;
-        let value=cache[key];
-        if(value){
-            return res.json(value)
-        }
-        let products= await readFileWithDelay()
-        let {id}=req.params
-        id=Number(id)
-        let product=products.find((item)=>{
-            return item.id===id
-        })
-        cache[key]=product
-        return res.json(product)
-    }catch(err){
-        console.log(err)
-    }
-})
-
-app.listen(port,()=>{
-    console.log(`Listening on port ${port}`)
-})
+module.exports = app;
